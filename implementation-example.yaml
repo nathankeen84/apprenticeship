@@ -1,0 +1,366 @@
+# Compliance Pipeline Implementation Example
+# This is a sample CI/CD pipeline configuration
+
+name: Compliance Pipeline
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  COMPLIANCE_THRESHOLD: 85
+  CRITICAL_FINDINGS_MAX: 0
+
+jobs:
+  # ============================================================================
+  # STAGE 1: COLLECTION
+  # ============================================================================
+  collect-data:
+    name: Collect Compliance Data
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Collect infrastructure configs
+        run: |
+          echo "Collecting IaC configurations..."
+          find . -name "*.tf" -o -name "*.yaml" -o -name "*.json" > configs.txt
+      
+      - name: Export audit logs
+        run: |
+          echo "Exporting audit logs from last 24h..."
+          # aws cloudtrail lookup-events --start-time $(date -d '1 day ago' +%s)
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: compliance-data
+          path: |
+            configs.txt
+            audit-logs/
+
+  # ============================================================================
+  # STAGE 2: CIS BENCHMARK SCANNING
+  # ============================================================================
+  cis-benchmarks:
+    name: CIS Benchmark Scans
+    runs-on: ubuntu-latest
+    needs: collect-data
+    steps:
+      - name: Docker CIS Benchmark
+        run: |
+          docker run --rm --net host --pid host --userns host --cap-add audit_control \
+            -v /var/lib:/var/lib -v /var/run/docker.sock:/var/run/docker.sock \
+            docker/docker-bench-security
+      
+      - name: Kubernetes CIS Benchmark
+        run: |
+          kubectl apply -f https://raw.githubusercontent.com/aquasecurity/kube-bench/main/job.yaml
+          kubectl wait --for=condition=complete job/kube-bench
+          kubectl logs job/kube-bench > kube-bench-results.txt
+      
+      - name: Cloud CIS - AWS Prowler
+        run: |
+          docker run -it --rm \
+            -v ~/.aws:/root/.aws \
+            toniblyx/prowler:latest \
+            -M json-asff -f us-east-1
+      
+      - name: OS Hardening Check
+        run: |
+          # OpenSCAP scan
+          oscap xccdf eval --profile xccdf_org.ssgproject.content_profile_cis \
+            --results results.xml \
+            /usr/share/xml/scap/ssg/content/ssg-ubuntu2004-ds.xml
+      
+      - name: Upload CIS results
+        uses: actions/upload-artifact@v3
+        with:
+          name: cis-results
+          path: |
+            kube-bench-results.txt
+            prowler-output/
+            results.xml
+
+  # ============================================================================
+  # STAGE 2: GDPR COMPLIANCE CHECKS
+  # ============================================================================
+  gdpr-compliance:
+    name: GDPR Compliance Validation
+    runs-on: ubuntu-latest
+    needs: collect-data
+    steps:
+      - name: Data Discovery Scan
+        run: |
+          echo "Scanning for PII/sensitive data..."
+          # Use tools like BigID, OneTrust, or custom scripts
+          python scripts/pii-scanner.py --output gdpr-data-map.json
+      
+      - name: Encryption Validation
+        run: |
+          echo "Validating encryption controls..."
+          python scripts/check-encryption.py \
+            --at-rest \
+            --in-transit \
+            --output encryption-report.json
+      
+      - name: Access Control Audit
+        run: |
+          echo "Auditing RBAC and access controls..."
+          python scripts/access-audit.py \
+            --check-mfa \
+            --check-least-privilege \
+            --output access-report.json
+      
+      - name: Data Retention Check
+        run: |
+          echo "Validating data retention policies..."
+          python scripts/retention-check.py \
+            --policy-file policies/retention.yaml \
+            --output retention-report.json
+      
+      - name: Consent Management Audit
+        run: |
+          echo "Checking consent records..."
+          python scripts/consent-audit.py \
+            --database-url ${{ secrets.DB_URL }} \
+            --output consent-report.json
+      
+      - name: Upload GDPR results
+        uses: actions/upload-artifact@v3
+        with:
+          name: gdpr-results
+          path: |
+            gdpr-data-map.json
+            encryption-report.json
+            access-report.json
+            retention-report.json
+            consent-report.json
+
+  # ============================================================================
+  # STAGE 2: AUDIT TRAIL COLLECTION
+  # ============================================================================
+  audit-trails:
+    name: Audit Trail Processing
+    runs-on: ubuntu-latest
+    needs: collect-data
+    steps:
+      - name: Collect authentication events
+        run: |
+          echo "Collecting auth events..."
+          # Query from ELK Stack
+          curl -X GET "${{ secrets.ELASTICSEARCH_URL }}/auth-logs-*/_search" \
+            -u "${{ secrets.ELK_USER }}:${{ secrets.ELK_PASS }}" \
+            -H "Content-Type: application/json" \
+            -d '{"query":{"range":{"@timestamp":{"gte":"now-24h"}}},"size":10000}' \
+            > auth-events.json
+      
+      - name: Collect API activity logs
+        run: |
+          echo "Collecting API logs..."
+          aws cloudtrail lookup-events \
+            --lookup-attributes AttributeKey=EventName,AttributeValue=* \
+            --start-time $(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%S) \
+            --output json > api-activity.json
+      
+      - name: Collect configuration changes
+        run: |
+          echo "Collecting config changes..."
+          aws configservice get-compliance-details-by-config-rule \
+            --config-rule-name all \
+            --output json > config-changes.json
+      
+      - name: Validate audit log integrity
+        run: |
+          echo "Validating log integrity..."
+          python scripts/verify-audit-integrity.py \
+            --logs audit-logs/ \
+            --output integrity-report.json
+      
+      - name: Upload audit results
+        uses: actions/upload-artifact@v3
+        with:
+          name: audit-results
+          path: |
+            auth-events.json
+            api-activity.json
+            config-changes.json
+            integrity-report.json
+
+  # ============================================================================
+  # STAGE 3: ANALYSIS & ASSESSMENT
+  # ============================================================================
+  analyze-results:
+    name: Analyze Compliance Results
+    runs-on: ubuntu-latest
+    needs: [cis-benchmarks, gdpr-compliance, audit-trails]
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+      
+      - name: Risk scoring
+        run: |
+          echo "Calculating risk scores..."
+          python scripts/risk-scoring.py \
+            --cis-results cis-results/ \
+            --gdpr-results gdpr-results/ \
+            --audit-results audit-results/ \
+            --output risk-scores.json
+      
+      - name: Compliance mapping
+        run: |
+          echo "Mapping to compliance frameworks..."
+          python scripts/compliance-mapper.py \
+            --frameworks CIS,GDPR,ISO27001,SOC2 \
+            --findings risk-scores.json \
+            --output compliance-map.json
+      
+      - name: Gap analysis
+        run: |
+          echo "Performing gap analysis..."
+          python scripts/gap-analysis.py \
+            --current compliance-map.json \
+            --target policies/target-compliance.yaml \
+            --output gaps.json
+      
+      - name: Calculate compliance score
+        id: score
+        run: |
+          SCORE=$(python scripts/calculate-score.py --input compliance-map.json)
+          echo "score=$SCORE" >> $GITHUB_OUTPUT
+          echo "Compliance Score: $SCORE%"
+      
+      - name: Check compliance threshold
+        run: |
+          if [ ${{ steps.score.outputs.score }} -lt $COMPLIANCE_THRESHOLD ]; then
+            echo "❌ Compliance score below threshold!"
+            exit 1
+          fi
+      
+      - name: Upload analysis results
+        uses: actions/upload-artifact@v3
+        with:
+          name: analysis-results
+          path: |
+            risk-scores.json
+            compliance-map.json
+            gaps.json
+
+  # ============================================================================
+  # STAGE 4: REPORTING
+  # ============================================================================
+  generate-reports:
+    name: Generate Compliance Reports
+    runs-on: ubuntu-latest
+    needs: analyze-results
+    steps:
+      - name: Download analysis results
+        uses: actions/download-artifact@v3
+        with:
+          name: analysis-results
+      
+      - name: Generate executive report
+        run: |
+          python scripts/generate-report.py \
+            --type executive \
+            --input compliance-map.json \
+            --output reports/executive-summary.pdf
+      
+      - name: Generate technical report
+        run: |
+          python scripts/generate-report.py \
+            --type technical \
+            --input risk-scores.json \
+            --output reports/technical-findings.pdf
+      
+      - name: Generate audit evidence package
+        run: |
+          python scripts/package-evidence.py \
+            --all-artifacts . \
+            --output audit-evidence-$(date +%Y%m%d).zip
+      
+      - name: Upload to compliance dashboard
+        run: |
+          curl -X POST "${{ secrets.DASHBOARD_URL }}/api/reports" \
+            -H "Authorization: Bearer ${{ secrets.API_TOKEN }}" \
+            -F "file=@reports/executive-summary.pdf"
+      
+      - name: Archive reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: compliance-reports
+          path: reports/
+          retention-days: 2555  # 7 years
+
+  # ============================================================================
+  # STAGE 4: ALERTING
+  # ============================================================================
+  send-alerts:
+    name: Send Compliance Alerts
+    runs-on: ubuntu-latest
+    needs: analyze-results
+    if: failure() || needs.analyze-results.outputs.critical_findings > 0
+    steps:
+      - name: Send SNS notification
+        run: |
+          aws sns publish \
+            --topic-arn ${{ secrets.SNS_TOPIC_ARN }} \
+            --subject "🚨 Compliance Pipeline Alert" \
+            --message "Compliance Issues Detected - Critical findings require immediate attention. View: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      
+      - name: Create Jira ticket
+        run: |
+          curl -X POST "${{ secrets.JIRA_URL }}/rest/api/2/issue" \
+            -H "Content-Type: application/json" \
+            -u "${{ secrets.JIRA_USER }}:${{ secrets.JIRA_TOKEN }}" \
+            -d '{
+              "fields": {
+                "project": {"key": "SEC"},
+                "summary": "Compliance Pipeline - Critical Findings",
+                "description": "Critical compliance issues detected. See pipeline run for details.",
+                "issuetype": {"name": "Bug"},
+                "priority": {"name": "Critical"}
+              }
+            }'
+
+  # ============================================================================
+  # STAGE 4: AUTO-REMEDIATION
+  # ============================================================================
+  auto-remediate:
+    name: Automated Remediation
+    runs-on: ubuntu-latest
+    needs: analyze-results
+    steps:
+      - name: Apply security patches
+        run: |
+          echo "Applying automated fixes..."
+          python scripts/auto-remediate.py \
+            --findings risk-scores.json \
+            --auto-fix-enabled \
+            --dry-run false
+      
+      - name: Update security groups
+        run: |
+          echo "Remediating security group rules..."
+          python scripts/fix-security-groups.py \
+            --findings cis-results/prowler-output/ \
+            --apply
+      
+      - name: Enable encryption
+        run: |
+          echo "Enabling encryption where missing..."
+          python scripts/enable-encryption.py \
+            --findings gdpr-results/encryption-report.json \
+            --apply
+      
+      - name: Trigger re-scan
+        run: |
+          echo "Triggering validation scan..."
+          gh workflow run compliance-pipeline.yaml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

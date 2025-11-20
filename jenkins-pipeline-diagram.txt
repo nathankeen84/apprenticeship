@@ -1,0 +1,326 @@
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                    JENKINS COMPLIANCE PIPELINE WITH AGENTS                    ║
+║                         & TEST PYRAMID INTEGRATION                            ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                         STAGE 1: DATA COLLECTION                              │
+│                      Agent: compliance-collector                              │
+└───────────────────────────────────────────────────────────────────────────────┘
+                                       │
+                    ┌──────────────────┴──────────────────┐
+                    │  Collect IaC, Configs, Logs         │
+                    │  Stash: collection-data             │
+                    └──────────────────┬──────────────────┘
+                                       │
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                  STAGE 2: PARALLEL SCANNING & TESTING                         │
+│                        (Multiple Agents in Parallel)                          │
+└───────────────────────────────────────────────────────────────────────────────┘
+                                       │
+        ┌──────────────┬───────────────┼───────────────┬──────────────┐
+        │              │               │               │              │
+        ▼              ▼               ▼               ▼              ▼
+
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│CIS BENCHMARK│  │GDPR CHECKS  │  │AUDIT TRAILS │  │TEST PYRAMID │  │  SECURITY   │
+│   SCANS     │  │             │  │             │  │             │  │    TESTS    │
+├─────────────┤  ├─────────────┤  ├─────────────┤  ├─────────────┤  ├─────────────┤
+│Agent:       │  │Agent:       │  │Agent:       │  │Agents:      │  │Agent:       │
+│security-    │  │compliance-  │  │audit-       │  │test-*       │  │security-    │
+│scanner      │  │gdpr         │  │collector    │  │             │  │scanner      │
+└─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘
+      │                │                │                │                │
+      │                │                │                │                │
+      ▼                ▼                ▼                ▼                ▼
+
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│• Docker CIS │  │• Data Map   │  │• Auth Events│  │   E2E       │  │• SAST       │
+│• K8s CIS    │  │• PII Scan   │  │• API Logs   │  │   Tests     │  │  (SonarQube)│
+│• AWS Prowler│  │• Encryption │  │• Config Chg │  │  (Agent:    │  │  (Semgrep)  │
+│• OS Harden  │  │• Access Ctrl│  │• Integrity  │  │  test-e2e)  │  │             │
+│             │  │• Retention  │  │             │  │     ▲       │  │• DAST       │
+│Stash:       │  │• Consent    │  │Stash:       │  │     │       │  │  (OWASP ZAP)│
+│cis-results  │  │             │  │audit-results│  │     │       │  │             │
+└─────────────┘  │Stash:       │  └─────────────┘  │ Component   │  │• Dependency │
+                 │gdpr-results │                   │   Tests     │  │  (Trivy)    │
+                 └─────────────┘                   │  (Agent:    │  │             │
+                                                   │  test-      │  │• Secret Scan│
+                                                   │  component) │  │  (Gitleaks) │
+                                                   │     ▲       │  │             │
+                                                   │     │       │  │Stash:       │
+                                                   │ Contract    │  │security-    │
+                                                   │   Tests     │  │test-results │
+                                                   │  (Agent:    │  └─────────────┘
+                                                   │  test-      │
+                                                   │  contract)  │
+                                                   │     ▲       │
+                                                   │     │       │
+                                                   │Integration  │
+                                                   │   Tests     │
+                                                   │  (Agent:    │
+                                                   │  test-      │
+                                                   │  integration│
+                                                   │     ▲       │
+                                                   │     │       │
+                                                   │ Unit Tests  │
+                                                   │  (Agent:    │
+                                                   │  test-unit) │
+                                                   │             │
+                                                   │Stash:       │
+                                                   │*-test-      │
+                                                   │results      │
+                                                   └─────────────┘
+                                                         │
+                                                         ▼
+                                              ┌─────────────────────┐
+                                              │ Performance Tests   │
+                                              │ (Agent: test-       │
+                                              │  performance)       │
+                                              │                     │
+                                              │ • JMeter Load Test  │
+                                              │ • K6 Stress Test    │
+                                              │                     │
+                                              │ Stash: performance- │
+                                              │ test-results        │
+                                              └─────────────────────┘
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                              TEST PYRAMID DETAIL                              ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+                                    ┌─────────────┐
+                                    │   E2E Tests │  ← Few, Slow, Expensive
+                                    │  (Cypress)  │    Agent: test-e2e
+                                    └─────────────┘
+                                ┌───────────────────┐
+                                │  Component Tests  │  ← Service-level
+                                │  (TestContainers) │    Agent: test-component
+                                └───────────────────┘
+                            ┌───────────────────────────┐
+                            │    Contract Tests (Pact)  │  ← API contracts
+                            │    Agent: test-contract   │
+                            └───────────────────────────┘
+                        ┌───────────────────────────────────┐
+                        │     Integration Tests (pytest)    │  ← Cross-module
+                        │     Agent: test-integration       │
+                        └───────────────────────────────────┘
+                ┌───────────────────────────────────────────────────┐
+                │          Unit Tests (pytest + coverage)           │  ← Many, Fast, Cheap
+                │          Agent: test-unit                         │
+                └───────────────────────────────────────────────────┘
+
+
+        All results collected and stashed for analysis stage
+
+
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                    STAGE 3: ANALYSIS & ASSESSMENT                             │
+│                      Agent: compliance-analyzer                               │
+└───────────────────────────────────────────────────────────────────────────────┘
+                                       │
+                    ┌──────────────────┴──────────────────┐
+                    │  Unstash ALL results from Stage 2   │
+                    └──────────────────┬──────────────────┘
+                                       │
+                    ┌──────────────────┼──────────────────┐
+                    │                  │                  │
+                    ▼                  ▼                  ▼
+        ┌──────────────────┐ ┌───────────────┐ ┌──────────────────┐
+        │  Risk Scoring    │ │ Compliance    │ │  Test Metrics    │
+        │                  │ │ Mapping       │ │                  │
+        │ • CIS findings   │ │               │ │ • Unit coverage  │
+        │ • GDPR gaps      │ │ • CIS v8      │ │ • Integration    │
+        │ • Audit issues   │ │ • GDPR        │ │ • E2E pass rate  │
+        │ • Security vulns │ │ • ISO 27001   │ │ • Performance    │
+        │                  │ │ • SOC 2       │ │ • Security score │
+        └────────┬─────────┘ └───────┬───────┘ └────────┬─────────┘
+                 │                   │                  │
+                 └───────────────────┼──────────────────┘
+                                     │
+                                     ▼
+                        ┌────────────────────────┐
+                        │  Compliance Score      │
+                        │  • Overall: 87%        │
+                        │  • Critical: 3         │
+                        │  • Test Coverage: 85%  │
+                        │                        │
+                        │  Threshold Check       │
+                        │  ✓ Score >= 85%        │
+                        │  ✗ Critical > 0        │
+                        └────────────┬───────────┘
+                                     │
+                                     │ Stash: analysis-results
+                                     │
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                  STAGE 4: REPORTING & REMEDIATION (Parallel)                  │
+└───────────────────────────────────────────────────────────────────────────────┘
+                                     │
+                    ┌────────────────┴────────────────┐
+                    │                                 │
+                    ▼                                 ▼
+        ┌───────────────────────┐       ┌───────────────────────┐
+        │   GENERATE REPORTS    │       │   AUTO-REMEDIATION    │
+        │   Agent: report-      │       │   Agent: remediation- │
+        │   generator           │       │   agent               │
+        ├───────────────────────┤       ├───────────────────────┤
+        │                       │       │                       │
+        │ • Executive Summary   │       │ • Apply Patches       │
+        │ • Technical Report    │       │ • Fix Security Groups │
+        │ • Audit Evidence Pkg  │       │ • Enable Encryption   │
+        │ • Test Pyramid Report │       │ • Update Configs      │
+        │                       │       │                       │
+        │ Publish to:           │       │ Log all changes       │
+        │ • Dashboard           │       │ • remediation-log.json│
+        │ • S3 Archive          │       │                       │
+        │ • HTML Reports        │       │ Trigger re-scan       │
+        └───────────────────────┘       └───────────────────────┘
+                    │                                 │
+                    └────────────────┬────────────────┘
+                                     │
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                   STAGE 5: NOTIFICATION & ARCHIVAL                            │
+│                      Agent: compliance-collector                              │
+└───────────────────────────────────────────────────────────────────────────────┘
+                                     │
+                    ┌────────────────┼────────────────┐
+                    │                │                │
+                    ▼                ▼                ▼
+        ┌──────────────────┐ ┌──────────────┐ ┌─────────────────┐
+        │  SNS Notify      │ │  S3 Archive  │ │  Jira Ticket    │
+        │  AWS SNS Topic   │ │  (7+ years)  │ │  (if failure)   │
+        │  Publish         │ │  GLACIER     │ │                 │
+        │                  │ │  Object Lock │ │  Priority:      │
+        │  ✅ Success      │ │  Immutable   │ │  Critical       │
+        │  ❌ Failure      │ │              │ │                 │
+        └──────────────────┘ └──────────────┘ └─────────────────┘
+
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                              AGENT ALLOCATION                                 ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+    Agent Label              Purpose                    Parallel Execution
+    ─────────────────────────────────────────────────────────────────────────
+    compliance-collector     Data collection/archival   Sequential
+    security-scanner         CIS + Security scans       Parallel (Stage 2)
+    compliance-gdpr          GDPR validation            Parallel (Stage 2)
+    audit-collector          Audit trail collection     Parallel (Stage 2)
+    test-unit                Unit tests                 Parallel (Stage 2)
+    test-integration         Integration tests          Parallel (Stage 2)
+    test-contract            Contract tests             Parallel (Stage 2)
+    test-component           Component tests            Parallel (Stage 2)
+    test-e2e                 E2E tests                  Parallel (Stage 2)
+    test-performance         Performance tests          Parallel (Stage 2)
+    compliance-analyzer      Analysis & scoring         Sequential
+    report-generator         Report generation          Parallel (Stage 4)
+    remediation-agent        Auto-remediation           Parallel (Stage 4)
+
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                            EXECUTION TIMELINE                                 ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+    Time    Stage                           Agents Active
+    ────────────────────────────────────────────────────────────────────────
+    0:00    Data Collection                 1 agent
+    0:05    ├─ Parallel Scanning            10 agents (simultaneous)
+    0:05    │  ├─ CIS Benchmarks            security-scanner
+    0:05    │  ├─ GDPR Checks               compliance-gdpr
+    0:05    │  ├─ Audit Trails              audit-collector
+    0:05    │  ├─ Unit Tests                test-unit
+    0:05    │  ├─ Integration Tests         test-integration
+    0:05    │  ├─ Contract Tests            test-contract
+    0:05    │  ├─ Component Tests           test-component
+    0:05    │  ├─ E2E Tests                 test-e2e
+    0:05    │  ├─ Security Tests            security-scanner
+    0:05    │  └─ Performance Tests         test-performance
+    0:45    Analysis & Assessment           1 agent
+    1:00    ├─ Parallel Reporting           2 agents (simultaneous)
+    1:00    │  ├─ Generate Reports          report-generator
+    1:00    │  └─ Auto-Remediation          remediation-agent
+    1:15    Notification & Archival         1 agent
+    1:20    Pipeline Complete               ✓
+
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                              STASH/UNSTASH FLOW                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+    Stage 1 (Collection)
+        └─ STASH: collection-data
+
+    Stage 2 (Parallel Scanning)
+        ├─ STASH: cis-results
+        ├─ STASH: gdpr-results
+        ├─ STASH: audit-results
+        ├─ STASH: unit-test-results
+        ├─ STASH: integration-test-results
+        ├─ STASH: contract-test-results
+        ├─ STASH: component-test-results
+        ├─ STASH: e2e-test-results
+        ├─ STASH: security-test-results
+        └─ STASH: performance-test-results
+
+    Stage 3 (Analysis)
+        ├─ UNSTASH: ALL Stage 2 stashes
+        └─ STASH: analysis-results
+
+    Stage 4 (Reporting)
+        └─ UNSTASH: analysis-results
+
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                            ARTIFACTS & REPORTS                                ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+    artifacts/
+    ├── collection/
+    │   └── configs.txt
+    ├── cis/
+    │   ├── docker/results.txt
+    │   ├── k8s/kube-bench.txt
+    │   ├── aws/prowler-results.json
+    │   └── os/results.xml
+    ├── gdpr/
+    │   ├── data-map.json
+    │   ├── encryption-report.json
+    │   ├── access-report.json
+    │   ├── retention-report.json
+    │   └── consent-report.json
+    ├── audit/
+    │   ├── auth-events.json
+    │   ├── api-activity.json
+    │   ├── config-changes.json
+    │   └── integrity-report.json
+    ├── tests/
+    │   ├── unit/
+    │   │   ├── junit.xml
+    │   │   ├── coverage.xml
+    │   │   └── coverage-html/
+    │   ├── integration/junit.xml
+    │   ├── contract/results.json
+    │   ├── component/junit.xml
+    │   ├── e2e/
+    │   │   ├── junit.xml
+    │   │   ├── screenshots/
+    │   │   └── videos/
+    │   └── performance/
+    │       ├── results.jtl
+    │       └── k6-results.json
+    ├── security/
+    │   ├── sast/semgrep-results.json
+    │   ├── dast/zap-report.json
+    │   ├── dependencies/trivy-results.json
+    │   └── secrets/gitleaks-report.json
+    ├── analysis/
+    │   ├── risk-scores.json
+    │   ├── compliance-map.json
+    │   ├── gaps.json
+    │   ├── test-metrics.json
+    │   └── compliance-score.json
+    └── reports/
+        ├── executive-summary.pdf
+        ├── technical-findings.pdf
+        ├── test-pyramid-report.html
+        └── audit-evidence-YYYYMMDD-HHMMSS.zip

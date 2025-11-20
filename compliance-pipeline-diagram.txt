@@ -1,0 +1,187 @@
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                        COMPLIANCE PIPELINE ARCHITECTURE                       ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                              STAGE 1: COLLECTION                              │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+    │  Code Repos │    │Infrastructure│   │ Cloud APIs  │    │  Databases  │
+    │   (GitHub)  │    │     (IaC)    │   │  (AWS/Azure)│    │  (Prod/Dev) │
+    └──────┬──────┘    └──────┬───────┘   └──────┬──────┘    └──────┬──────┘
+           │                  │                   │                   │
+           └──────────────────┴───────────────────┴───────────────────┘
+                                       │
+                                       ▼
+                            ┌──────────────────────┐
+                            │  Data Aggregation    │
+                            │  • Logs              │
+                            │  • Configs           │
+                            │  • User Activity     │
+                            │  • API Calls         │
+                            └──────────┬───────────┘
+                                       │
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                           STAGE 2: SCANNING & AUDITING                        │
+└───────────────────────────────────────────────────────────────────────────────┘
+                                       │
+                    ┌──────────────────┼──────────────────┐
+                    │                  │                  │
+                    ▼                  ▼                  ▼
+        ┌───────────────────┐ ┌───────────────┐ ┌──────────────────┐
+        │  CIS BENCHMARKS   │ │  GDPR CHECKS  │ │  AUDIT TRAILS    │
+        ├───────────────────┤ ├───────────────┤ ├──────────────────┤
+        │                   │ │               │ │                  │
+        │ • OS Hardening    │ │ • Data Map    │ │ • Auth Events    │
+        │   - Linux CIS     │ │ • PII Scan    │ │ • API Logs       │
+        │   - Windows CIS   │ │ • Encryption  │ │ • Config Changes │
+        │                   │ │   - At Rest   │ │ • Access Logs    │
+        │ • Container       │ │   - In Transit│ │ • User Actions   │
+        │   - Docker Bench  │ │               │ │                  │
+        │   - Image Scan    │ │ • Access Ctrl │ │ • Immutable      │
+        │                   │ │   - RBAC      │ │   Storage        │
+        │ • Kubernetes      │ │   - MFA       │ │ • Retention      │
+        │   - kube-bench    │ │   - Least Priv│ │   (7+ years)     │
+        │   - Pod Security  │ │               │ │                  │
+        │                   │ │ • Retention   │ │ • Tamper-Proof   │
+        │ • Cloud           │ │   Policies    │ │ • Searchable     │
+        │   - AWS Prowler   │ │               │ │                  │
+        │   - Azure Secure  │ │ • Consent Mgmt│ │ • Real-time      │
+        │   - GCP Forseti   │ │ • Data Rights │ │   Streaming      │
+        │                   │ │   - Portability│ │                  │
+        │ • Network         │ │   - Erasure   │ │                  │
+        │   - Firewall Rules│ │   - Access    │ │                  │
+        │   - TLS/SSL       │ │               │ │                  │
+        └─────────┬─────────┘ └───────┬───────┘ └────────┬─────────┘
+                  │                   │                  │
+                  └───────────────────┼──────────────────┘
+                                      │
+                                      ▼
+                          ┌───────────────────────┐
+                          │   Results Database    │
+                          │   • Raw Findings      │
+                          │   • Timestamps        │
+                          │   • Evidence          │
+                          └───────────┬───────────┘
+                                      │
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                        STAGE 3: ANALYSIS & ASSESSMENT                         │
+└───────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                    ┌─────────────────┼─────────────────┐
+                    │                 │                 │
+                    ▼                 ▼                 ▼
+        ┌──────────────────┐ ┌───────────────┐ ┌──────────────────┐
+        │  Risk Scoring    │ │ Compliance    │ │  Gap Analysis    │
+        │                  │ │ Mapping       │ │                  │
+        │ • Critical       │ │               │ │ • Missing Ctrls  │
+        │ • High           │ │ • CIS v8      │ │ • Policy Gaps    │
+        │ • Medium         │ │ • GDPR        │ │ • Coverage %     │
+        │ • Low            │ │ • ISO 27001   │ │ • Trends         │
+        │ • Info           │ │ • SOC 2       │ │ • Benchmarking   │
+        └────────┬─────────┘ └───────┬───────┘ └────────┬─────────┘
+                 │                   │                  │
+                 └───────────────────┼──────────────────┘
+                                     │
+                                     ▼
+                        ┌────────────────────────┐
+                        │  Compliance Engine     │
+                        │  • Score Calculation   │
+                        │  • Violation Detection │
+                        │  • Trend Analysis      │
+                        │  • Prioritization      │
+                        └────────────┬───────────┘
+                                     │
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                       STAGE 4: REPORTING & REMEDIATION                        │
+└───────────────────────────────────────────────────────────────────────────────┘
+                                     │
+                    ┌────────────────┼────────────────┐
+                    │                │                │
+                    ▼                ▼                ▼
+        ┌──────────────────┐ ┌──────────────┐ ┌─────────────────┐
+        │   REPORTING      │ │ ALERTING     │ │  REMEDIATION    │
+        ├──────────────────┤ ├──────────────┤ ├─────────────────┤
+        │                  │ │              │ │                 │
+        │ • Dashboards     │ │ • Critical   │ │ • Auto-Fix      │
+        │   - Real-time    │ │   Findings   │ │   - Patches     │
+        │   - Grafana      │ │              │ │   - Config      │
+        │   - Kibana       │ │ • AWS SNS    │ │                 │
+        │                  │ │ • Email      │ │ • Ticket Create │
+        │ • Reports        │ │ • PagerDuty  │ │   - Jira        │
+        │   - Executive    │ │ • Teams      │ │   - ServiceNow  │
+        │   - Technical    │ │              │ │                 │
+        │   - Audit        │ │ • Escalation │ │ • Tracking      │
+        │                  │ │   Rules      │ │   - Progress    │
+        │ • Compliance     │ │              │ │   - SLA         │
+        │   Score Cards    │ │ • Thresholds │ │                 │
+        │                  │ │              │ │ • Re-scan       │
+        │ • Evidence       │ │              │ │   - Validation  │
+        │   Archive        │ │              │ │   - Closure     │
+        └──────────────────┘ └──────────────┘ └─────────────────┘
+                    │                │                │
+                    └────────────────┼────────────────┘
+                                     │
+                                     ▼
+                        ┌────────────────────────┐
+                        │  Audit Trail Storage   │
+                        │  • Immutable Logs      │
+                        │  • Long-term Archive   │
+                        │  • Compliance Evidence │
+                        └────────────────────────┘
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                            CONTINUOUS FEEDBACK LOOP                           ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+    Findings ──▶ Remediation ──▶ Re-scan ──▶ Validation ──▶ Improvement
+         ▲                                                        │
+         └────────────────────────────────────────────────────────┘
+
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                              EXECUTION SCHEDULE                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+    CONTINUOUS (Real-time)
+    └─ Audit trail collection
+    └─ Security event streaming
+    └─ Critical alert monitoring
+
+    DAILY
+    └─ CIS benchmark scans
+    └─ GDPR control validation
+    └─ Compliance score updates
+
+    PER COMMIT
+    └─ IaC security scanning
+    └─ Secret detection
+    └─ Policy-as-code validation
+
+    WEEKLY
+    └─ Trend analysis
+    └─ Executive reports
+    └─ Remediation reviews
+
+    MONTHLY
+    └─ Comprehensive audit reports
+    └─ Compliance certification prep
+    └─ Risk assessment updates
+
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                                KEY METRICS                                    ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+    📊 Compliance Score: 87% ──────────────────────────────── Target: 95%
+    
+    🔴 Critical Findings: 3 ───────────────────────────────── Target: 0
+    
+    🟡 High Findings: 12 ──────────────────────────────────── Target: <5
+    
+    ⏱️  MTTR: 4.2 days ────────────────────────────────────── Target: <3 days
+    
+    ✅ Audit Coverage: 98% ────────────────────────────────── Target: 100%
+    
+    🔒 GDPR Readiness: 92% ────────────────────────────────── Target: 100%
